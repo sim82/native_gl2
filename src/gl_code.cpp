@@ -41,6 +41,8 @@
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO,LOG_TAG,__VA_ARGS__)
 #define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,__VA_ARGS__)
 
+AAssetManager *g_asset_mgr = 0;
+
 class egl_context {
     
     
@@ -452,13 +454,40 @@ public:
     
     
     engine() : grey(0), huge_data_(hd_size, 1) {
-        
+        test_assets();
     }
     engine( const engine_state &state ):  huge_data_(hd_size, 1) {
      
         grey = std::min( 1.0f, std::max( 0.0f, state.grey ));   
+        
+        test_assets();
     }
-    
+    void test_assets() {
+        AAsset* a = AAssetManager_open( g_asset_mgr, "raw/test.jpg", AASSET_MODE_RANDOM );
+        assert( a != 0 );
+        
+        off_t len = AAsset_getLength(a);
+        
+        const char *buf = (const char *)AAsset_getBuffer(a);
+        LOGI( "asset: %p %d\n", a, len );
+        
+        for( size_t i = 0; i < len; ++i ) {
+            LOGI( "x: %c\n", buf[i] );
+        }
+//         AAssetDir *dir = AAssetManager_openDir(g_asset_mgr, "assets" );
+//         
+//         while( true ) {
+//             const char *name = AAssetDir_getNextFileName(dir);
+//             
+//             if( name == 0 ) {
+//                 break;
+//             }
+//             
+//             LOGI( "asset: %s\n", name );
+//         }
+
+
+    }
 //     void deserialize( const engine_state &state ) {
 //         
 //     }
@@ -636,6 +665,24 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 //         break;
     }
 }
+
+template<typename Type_>
+class ptr_nuller {
+public:
+    ptr_nuller( Type_ **pptr, Type_* ptr ) : pptr_(pptr) 
+    {
+        *pptr_ = ptr;
+        
+    }
+    
+    ~ptr_nuller() {
+        *pptr_ = 0;
+    }
+    
+private:
+    Type_ **pptr_;
+};
+
 void android_main(struct android_app* state) {
 //     struct engine engine;
 // 
@@ -646,6 +693,9 @@ void android_main(struct android_app* state) {
 //     state->userData = &engine;
     state->onAppCmd = engine_handle_cmd;
     state->onInputEvent = engine_handle_input;
+    
+    ptr_nuller<AAssetManager> pn( &g_asset_mgr, state->activity->assetManager);
+    
 //     engine.app = state;
 // 
 //     // Prepare to monitor accelerometer
