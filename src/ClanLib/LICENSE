@@ -1,0 +1,10 @@
+DISCLAIMER:
+
+This folder contains modified source code from ClanLib.
+The source files for Core/Math and some support stuff has been
+slightly modified for easy compilation with android-cmake.
+
+
+Original Code:
+Copyright (c) 1997-2010 The ClanLib Team
+http://clanlib.org/wiki/Main_Page
