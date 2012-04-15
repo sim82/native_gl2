@@ -24,15 +24,18 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <cassert>
+#include <cstdio>
+#include <memory>
+#include <cstdlib>
 #include <math.h>
 #include <string>
 #include <vector>
 #include <algorithm>
 #include <sstream>
-
+#include <stdexcept>
 #include "ClanLib/Core/Math/mat4.h"
+// #include "gl_bits.h"
 
 #define  LOG_TAG    "libgl2jni"
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO,LOG_TAG,__VA_ARGS__)
@@ -54,8 +57,48 @@ public:
         }
         
     }
-    egl_context() : initialized_(false), visible_(false), huge_data_(1024 * 1024), init_count_(0) {}
     
+    
+    egl_context( android_app *app ) : initialized_(false) {
+        init_display(app);
+    }
+    ~egl_context() {
+        uninit_display();
+    }
+    
+    
+    void make_current() {
+        
+        if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
+            LOGI("Unable to eglMakeCurrent");
+         
+        }
+    }
+    
+    bool initialized() const {
+        return initialized_;
+    }
+ 
+    
+    EGLint get_w() const {
+        return w;
+    }
+    
+    EGLint get_h() const {
+        return h;
+    }
+    
+    void swap_buffers() {
+        
+        eglSwapBuffers(display, surface);
+        
+        check_error( "eglSwapBuffers" );
+//         LOGI( "swap: %x\n", err );
+        
+    }
+    
+private:
+    egl_context() : initialized_(false), init_count_(0) {}
     int init_display( android_app *app ) {
         const EGLint attribs[] = {
             EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
@@ -123,10 +166,11 @@ public:
         
         LOGI( "initialization done %d\n", init_count_ );
         
-        LOGI( "huge data: %p\n", huge_data_.data() );
-        std:fill( huge_data_.begin(), huge_data_.end(), 1 );
+        //LOGI( "huge data: %p\n", huge_data_.data() );
+//         std::fill( huge_data_.begin(), huge_data_.end(), 1 );
         
       //  huge_data_.resize( 1024 * 1024 * 50 );
+        return 0;
     }
     
     void uninit_display() {
@@ -135,7 +179,7 @@ public:
         }
         
         initialized_ = false;
-        visible_ = false;
+//         visible_ = false;
         
         eglMakeCurrent( display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT );
         eglDestroyContext( display, context );
@@ -148,54 +192,21 @@ public:
         //huge_data_ = std::vector<char>();
     }
     
-    void swap_buffers() {
-        
-        eglSwapBuffers(display, surface);
-        
-        check_error( "eglSwapBuffers" );
-//         LOGI( "swap: %x\n", err );
-        
-    }
+   
     
-    void make_current() {
-        
-        if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
-            LOGI("Unable to eglMakeCurrent");
-         
-        }
-    }
-    
-    bool initialized() const {
-        return initialized_;
-    }
-    bool visible() const {
-        return visible_;
-    }
-    
-    void visible( bool v ) {
-        visible_ = v;
-    }
-    
-    EGLint get_w() const {
-        return w;
-    }
-    
-    EGLint get_h() const {
-        return h;
-    }
-private:
     EGLDisplay display;
     EGLSurface surface;
     EGLContext context;
     EGLint w, h;
     
     bool initialized_;
-    bool visible_;
+    
+//     std::vector<char> huge_data_;
     int init_count_;
-    std::vector<char> huge_data_;
+    
 };
 
-egl_context g_ctx;
+// egl_context g_ctx;
 
 static void printGLString(const char *name, GLenum s) {
     const char *v = (const char *) glGetString(s);
@@ -222,106 +233,116 @@ static const char gFragmentShader[] =
     "  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
     "}\n";
 
-GLuint loadShader(GLenum shaderType, const char* pSource) {
-    GLuint shader = glCreateShader(shaderType);
-    if (shader) {
-        glShaderSource(shader, 1, &pSource, NULL);
-        glCompileShader(shader);
-        GLint compiled = 0;
-        glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-        if (!compiled) {
-            GLint infoLen = 0;
-            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
-            if (infoLen) {
-                char* buf = (char*) malloc(infoLen);
-                if (buf) {
-                    glGetShaderInfoLog(shader, infoLen, NULL, buf);
-                    LOGE("Could not compile shader %d:\n%s\n",
-                            shaderType, buf);
-                    free(buf);
+
+
+class gl_program {
+public:
+    gl_program() : program(0) {
+        
+    }
+    
+    gl_program( const char *vertex_src, const char *fragment_source ) {
+        GLuint vertexShader = loadShader(GL_VERTEX_SHADER, vertex_src);
+        if (!vertexShader) {
+            throw std::runtime_error( "load vertex shader failed.\n" );
+        }
+
+        GLuint pixelShader = loadShader(GL_FRAGMENT_SHADER, fragment_source);
+        if (!pixelShader) {
+          throw std::runtime_error( "load fragment shader failed.\n" );
+        }
+        
+        program = glCreateProgram();
+        if (program) {
+            glAttachShader(program, vertexShader);
+            checkGlError("glAttachShader");
+            glAttachShader(program, pixelShader);
+            checkGlError("glAttachShader");
+            glLinkProgram(program);
+            GLint linkStatus = GL_FALSE;
+            glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+            if (linkStatus != GL_TRUE) {
+                GLint bufLength = 0;
+                glGetProgramiv(program, GL_INFO_LOG_LENGTH, &bufLength);
+                if (bufLength) {
+                    
+                    std::vector<char> buf( bufLength );
+//                     char* buf = (char*) malloc(bufLength);
+                    
+                    glGetProgramInfoLog(program, bufLength, NULL, buf.data());
+                    LOGE("Could not link program:\n%s\n", buf.data());
+                        
+                    
                 }
-                glDeleteShader(shader);
-                shader = 0;
+            
+            }
+            
+            gvPositionHandle = glGetAttribLocation(program, "vPosition");
+            checkGlError("glGetAttribLocation");
+            LOGI("glGetAttribLocation(\"vPosition\") = %d\n",
+                 gvPositionHandle);
+            
+            gv_mvp_handle = glGetUniformLocation(program, "mvp_matrix");
+            LOGI("glGetAttribLocation(\"mvp_matrix\") = %d\n", gv_mvp_handle);
+            
+        } else {
+            throw std::runtime_error( "glCreateProgram failed" );
+        }
+
+    }
+    ~gl_program() {
+        // TODO: teardown gl resources
+        glDeleteProgram(program);
+        program = 0;
+    }
+    void use() {
+        glUseProgram(program);
+        checkGlError("glUseProgram");
+    }
+    
+    GLuint mvp_handle() {
+        return gv_mvp_handle;
+    }
+    GLuint position_handle() {
+        return gvPositionHandle;
+    }
+    
+private:
+    GLuint loadShader(GLenum shaderType, const char* pSource) {
+        GLuint shader = glCreateShader(shaderType);
+        if (shader) {
+            glShaderSource(shader, 1, &pSource, NULL);
+            glCompileShader(shader);
+            GLint compiled = 0;
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+            if (!compiled) {
+                GLint infoLen = 0;
+                glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
+                if (infoLen) {
+                    char* buf = (char*) malloc(infoLen);
+                    if (buf) {
+                        glGetShaderInfoLog(shader, infoLen, NULL, buf);
+                        LOGE("Could not compile shader %d:\n%s\n",
+                             shaderType, buf);
+                        free(buf);
+                    }
+                    glDeleteShader(shader);
+                    shader = 0;
+                }
             }
         }
+        return shader;
     }
-    return shader;
-}
-
-GLuint createProgram(const char* pVertexSource, const char* pFragmentSource) {
-    GLuint vertexShader = loadShader(GL_VERTEX_SHADER, pVertexSource);
-    if (!vertexShader) {
-        return 0;
-    }
-
-    GLuint pixelShader = loadShader(GL_FRAGMENT_SHADER, pFragmentSource);
-    if (!pixelShader) {
-        return 0;
-    }
-
-    GLuint program = glCreateProgram();
-    if (program) {
-        glAttachShader(program, vertexShader);
-        checkGlError("glAttachShader");
-        glAttachShader(program, pixelShader);
-        checkGlError("glAttachShader");
-        glLinkProgram(program);
-        GLint linkStatus = GL_FALSE;
-        glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
-        if (linkStatus != GL_TRUE) {
-            GLint bufLength = 0;
-            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &bufLength);
-            if (bufLength) {
-                char* buf = (char*) malloc(bufLength);
-                if (buf) {
-                    glGetProgramInfoLog(program, bufLength, NULL, buf);
-                    LOGE("Could not link program:\n%s\n", buf);
-                    free(buf);
-                }
-            }
-            glDeleteProgram(program);
-            program = 0;
-        }
-    }
-    return program;
-}
-
-GLuint gProgram;
-GLuint gvPositionHandle;
-GLuint gv_mvp_handle;
-
-CL_Mat4f mvp_mat;
-
-bool setupGraphics() {
-    int w = g_ctx.get_w();
-    int h = g_ctx.get_h();
-    
-    printGLString("Version", GL_VERSION);
-    printGLString("Vendor", GL_VENDOR);
-    printGLString("Renderer", GL_RENDERER);
-    printGLString("Extensions", GL_EXTENSIONS);
-
-    LOGI("setupGraphics(%d, %d)", w, h);
-    gProgram = createProgram(gVertexShader, gFragmentShader);
-    if (!gProgram) {
-        LOGE("Could not create program.");
-        return false;
-    }
-    gvPositionHandle = glGetAttribLocation(gProgram, "vPosition");
-    checkGlError("glGetAttribLocation");
-    LOGI("glGetAttribLocation(\"vPosition\") = %d\n",
-            gvPositionHandle);
-
-    gv_mvp_handle = glGetUniformLocation(gProgram, "mvp_matrix");
-    LOGI("glGetAttribLocation(\"mvp_matrix\") = %d\n",
-            gv_mvp_handle);
-    
-    glViewport(0, 0, g_ctx.get_w(), g_ctx.get_h());
     
     
-    checkGlError("glViewport");
-    return true;
-}
+    GLuint program;
+    GLuint gvPositionHandle;
+    GLuint gv_mvp_handle;
+};
+
+// GLuint gProgram;
+// GLuint gvPositionHandle;
+// GLuint gv_mvp_handle;
 
 template<typename t>
 std::string xtostring( const t &x ) {
@@ -334,62 +355,62 @@ std::string xtostring( const t &x ) {
 const GLfloat gTriangleVertices[] = { 0.0f, 0.5f, -0.5f, -0.5f,
         0.5f, -0.5f };
 
-void renderFrame( ) {
+class gl_transient_state {
+  
     
-    g_ctx.make_current();
-    
-    //CL_Mat4f mv_mat = CL_Mat4f::ortho(-5.0, 5.0, -5.0, 5.0, 0, 200);
-
-    
-//     LOGI( "mat: %s\n", xtostring(mv_mat).c_str() );
-
-    glFrontFace( GL_CCW );
-    glCullFace(GL_BACK);
-    glEnable(GL_CULL_FACE);
-    
-    static float grey;
-    grey += 0.01f;
-    if (grey > 1.0f) {
-        grey = 0.0f;
-    }
-    
+public:
+    gl_transient_state(android_app *app) 
+    : context_( app ),
+      program_(gVertexShader, gFragmentShader ),
+      visible_(false)
     {
-        CL_Mat4f mv_mat = CL_Mat4f::perspective( 60, 1.5, 0.2, 500 );
-        CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, grey * 10, 0, 0, 0, 0.0, 1.0, 0.0 );
-        //mvp_mat = mv_mat * p_mat;
-        mvp_mat = CL_Mat4f::identity();
         
-        CL_Mat4f rot = CL_Mat4f::rotate( CL_Angle::from_degrees(grey * 30.0), 0, 0.0, 1.0 );
         
-        mvp_mat = rot * p_mat * mv_mat;
+        printGLString("Version", GL_VERSION);
+        printGLString("Vendor", GL_VENDOR);
+        printGLString("Renderer", GL_RENDERER);
+        printGLString("Extensions", GL_EXTENSIONS);
+        
+      
+        
+        glViewport(0, 0, context_.get_w(), context_.get_h());
+        
+        
+        checkGlError("glViewport");
+        LOGI( ">>>>>>>>> engine()\n" );
     }
-//     LOGI( "grey: %f\n", grey );
-    glClearColor(grey, grey, grey, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    checkGlError("glClearColor");
-//     g_ctx.swap_buffers();
-    //return;
+    ~gl_transient_state() {
+        LOGI( ">>>>>>>>> ~engine()\n" );
+    }
+    void render_pre() {
+        context_.make_current();
+        program_.use();
+        
+    }
+    void render_post() {
+        context_.swap_buffers();
+    }
     
-    glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-    checkGlError("glClear");
+    bool visible() const {
+        return visible_;
+    }
+    
+    void visible( bool v ) {
+        visible_ = v;
+    }
+    
+    gl_program *program() {
+        return &program_;
+    }
+    
+private:
+    egl_context context_;
+    gl_program program_;
+    CL_Mat4f mvp_mat;
+    bool visible_;
+};
 
-    glUseProgram(gProgram);
-    checkGlError("glUseProgram");
 
-    glUniformMatrix4fv( gv_mvp_handle, 1, GL_FALSE, mvp_mat.matrix );
-    checkGlError("glUniformMatrix4fv" );
-    
-    glVertexAttribPointer(gvPositionHandle, 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
-    checkGlError("glVertexAttribPointer");
-    glEnableVertexAttribArray(gvPositionHandle);
-    checkGlError("glEnableVertexAttribArray");
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    checkGlError("glDrawArrays");
-    
-//     LOGI( "render\n" );
-    
-    g_ctx.swap_buffers();
-}
 static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) {
     return 0;
 }
@@ -420,54 +441,191 @@ static const char *command_to_string( int32_t cmd ) {
     }
 }
 
+struct engine_state {
+    float grey;
+};
+
+
+const static size_t hd_size = 1024 * 1024 * 200;
+class engine {
+public:
+    
+    
+    engine() : grey(0), huge_data_(hd_size, 1) {
+        
+    }
+    engine( const engine_state &state ):  huge_data_(hd_size, 1) {
+     
+        grey = std::min( 1.0f, std::max( 0.0f, state.grey ));   
+    }
+    
+//     void deserialize( const engine_state &state ) {
+//         
+//     }
+    
+    engine_state serialize() {
+        engine_state state;
+        state.grey = grey;
+        
+        return state;
+    }
+    void render( gl_transient_state *gts ) {
+    
+        if( !gts->visible() ) {
+            return;
+        }
+        gts->render_pre();
+        
+        //CL_Mat4f mv_mat = CL_Mat4f::ortho(-5.0, 5.0, -5.0, 5.0, 0, 200);
+        
+        
+        //     LOGI( "mat: %s\n", xtostring(mv_mat).c_str() );
+        
+        glFrontFace( GL_CCW );
+        glCullFace(GL_BACK);
+        glEnable(GL_CULL_FACE);
+        
+        
+        grey += 0.01f;
+        if (grey > 1.0f) {
+            grey = 0.0f;
+        }
+        CL_Mat4f mvp_mat;
+        {
+            //         CL_Mat4f mv_mat = CL_Mat4f::ortho(-10, 10, -10, 10, 0.2, 200 );
+            CL_Mat4f mv_mat = CL_Mat4f::perspective( 60, 1.5, 0.2, 500 );
+            CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, grey * 10, 0, 0, 0, 0.0, 1.0, 0.0 );
+            //mvp_mat = mv_mat * p_mat;
+            mvp_mat = CL_Mat4f::identity();
+            
+            CL_Mat4f rot = CL_Mat4f::rotate( CL_Angle::from_degrees(grey * 30.0), 0, 0.0, 1.0 );
+            
+            mvp_mat = rot * p_mat * mv_mat;
+        }
+        //     LOGI( "grey: %f\n", grey );
+        glClearColor(grey, grey, grey, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        checkGlError("glClearColor");
+        //     g_ctx.swap_buffers();
+        //return;
+        
+        glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+        checkGlError("glClear");
+        
+       // program_.use();
+        
+        
+        
+        glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, mvp_mat.matrix );
+        checkGlError("glUniformMatrix4fv" );
+        
+        glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+        checkGlError("glVertexAttribPointer");
+        glEnableVertexAttribArray(gts->program()->position_handle());
+        checkGlError("glEnableVertexAttribArray");
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        checkGlError("glDrawArrays");
+        
+        //     LOGI( "render\n" );
+        
+        gts->render_post();
+    
+    }
+    
+private:
+    float grey;
+    std::vector<char>  huge_data_;
+};
+
+std::auto_ptr<gl_transient_state> g_gl_transient_state;
+std::auto_ptr<engine> g_engine(0);
+
+
 static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
     
     LOGI( ">>>>> command: %s\n", command_to_string(cmd) );
     switch (cmd) {
     case APP_CMD_INIT_WINDOW:
         // The window is being shown, get it ready.
-        g_ctx.init_display(app);
-        setupGraphics();
+//         g_ctx.init_display(app);
+//         setupGraphics();
+        
+        g_gl_transient_state.reset(new gl_transient_state(app));
         break;
     case APP_CMD_TERM_WINDOW:
-        g_ctx.uninit_display();
+        //g_ctx.uninit_display();
+        g_gl_transient_state.reset(0);
+        
         break;
         
     case APP_CMD_GAINED_FOCUS:
 //         LOGI( "focus gained\n" );
-        g_ctx.visible(true);
+        //g_ctx.visible(true);
+        assert( g_gl_transient_state.get() != 0 );
+        g_gl_transient_state->visible(true);
         break;
         
     case APP_CMD_LOST_FOCUS:
 //         LOGI( "focus lost\n" );
-        g_ctx.visible(false);
+        assert( g_gl_transient_state.get() != 0 );
+        g_gl_transient_state->visible(false);
         break;
         
     case APP_CMD_DESTROY:
 //         LOGI( "destroy: %d\n", g_ctx.initialized() );
 //         g_destroyed = true;
+        assert( g_gl_transient_state.get() == 0 );
+        
+        g_engine.reset(0);
         break;
         
     case APP_CMD_SAVE_STATE:
     {
-        app->savedState = malloc( 10 );
-        std::string t( "saved\0" );
-        std::copy( t.begin(), t.end(), (char*)app->savedState );
-        app->savedStateSize = 10;
+        assert( g_engine.get() != 0 );
         
-        LOGI( "save state: %d\n", g_ctx.initialized() );
+        
+        const size_t es_size = sizeof( engine_state );
+        
+        app->savedState = malloc( es_size );
+        *((engine_state *)app->savedState) = g_engine->serialize();
+        app->savedStateSize = es_size;
+        
+//         app->savedState = malloc( 10 );
+//         std::string t( "saved\0" );
+//         std::copy( t.begin(), t.end(), (char*)app->savedState );
+//         app->savedStateSize = 10;
+//         
+//         LOGI( "save state: %d\n", g_ctx.initialized() );
         break;
     }   
     case APP_CMD_START:
+        LOGI( "engine at start: %p %d\n", (void*)g_engine.get(), app->savedStateSize );
+        
+        if( g_engine.get() == 0 ) {
+            if( app->savedState != 0 ) {
+                
+                LOGI( "start from saved state: %d\n", app->savedStateSize );
+                assert( app->savedStateSize == sizeof( engine_state ) );
+                
+                
+                g_engine.reset( new engine(*((engine_state *)app->savedState)) );
+            } else {
+            
+                g_engine.reset( new engine() );
+            }
+        }
+            
+        
 //         g_destroyed = false;
 //         LOGI( "start:\n" );
         break;
         
     case APP_CMD_RESUME:
-        LOGI( "saved state size: %d\n", app->savedStateSize );
-        if( app->savedStateSize > 0 ) {
-            LOGI( "saved state: %s\n", app->savedState );
-        }
+        
+        
+        assert( g_engine.get() != 0 );
+        
+        
         
 //         g_destroyed = false;
 //         LOGI( "resume:\n" );
@@ -513,7 +671,11 @@ void android_main(struct android_app* state) {
         // If not animating, we will block forever waiting for events.
         // If animating, we loop until all events are read, then continue
         // to draw the next frame of animation.
-        bool blocking = !g_ctx.visible();
+        bool blocking = true;
+        
+        if( g_gl_transient_state.get() != 0 ) {
+            blocking = !g_gl_transient_state->visible();
+        }
 //         blocking = true;
         int poll_timeout = blocking ? -1 : 0;
         
@@ -531,17 +693,21 @@ void android_main(struct android_app* state) {
             }
 //             LOGI( "destroyed: %d\n", g_destroyed );
             if (state->destroyRequested != 0) {
-                if( g_ctx.initialized() ) {
-                    g_ctx.uninit_display();
-                    
-                    
-                }
+//                 if( g_ctx.initialized() ) {
+//                     g_ctx.uninit_display();
+//                     
+//                     
+//                 }
+                
+                g_gl_transient_state.reset(0);
                 LOGI( "destroy: returning\n" );
                 return;
             }
             
-            blocking = !g_ctx.visible();
-            
+            blocking = true;
+            if( g_gl_transient_state.get() != 0 ) {
+                blocking = !g_gl_transient_state->visible();
+            }
             poll_timeout = blocking ? -1 : 0;
         
             LOGI( "timeout: %d\n", poll_timeout );
@@ -569,10 +735,13 @@ void android_main(struct android_app* state) {
         }
         
        
+        if( g_gl_transient_state.get() != 0 && g_gl_transient_state->visible() ) {
         
-        if( g_ctx.initialized() && g_ctx.visible() ) {
+            assert( g_engine.get() != 0 );
+            
+            g_engine->render( g_gl_transient_state.get() );
             //LOGI( "initilaized\n" );
-            renderFrame();
+           // g_gl_transient_state->renderFrame();
         } else {
                 LOGI( "not initilaized\n" );
         }

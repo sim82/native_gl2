@@ -1,0 +1,3 @@
+[submodule "shooter2"]
+	path = shooter2
+	url = git@github.com:sim82/shooter2.git

@@ -2,9 +2,11 @@ cmake_minimum_required(VERSION 2.8)
 #notice the "recycling" of CMAKE_C_FLAGS
 #this is necessary to pick up android flags
 set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -pedantic -fPIC" )
+set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -fPIC" )
 
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/API)
+INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/../shooter2)
 set( LIBRARY_DEPS EGL GLESv2 log android)
 
 set(MY_SRCS
