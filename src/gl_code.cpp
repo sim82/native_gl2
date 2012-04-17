@@ -35,6 +35,7 @@
 #include <sstream>
 #include <stdexcept>
 #include "ClanLib/Core/Math/mat4.h"
+#include "ClanLib/Core/Math/vec3.h"
 // #include "gl_bits.h"
 
 #define  LOG_TAG    "libgl2jni"
@@ -42,6 +43,73 @@
 #define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,__VA_ARGS__)
 
 AAssetManager *g_asset_mgr = 0;
+
+
+CL_Vec3f hsv_to_rgb( float h, float s, float v ) {
+    float r, g, b;
+    int i;
+    
+ 
+    // Make sure our arguments stay in-range
+    h = std::max(0.0f, std::min(1.0f, h));
+    s = std::max(0.0f, std::min(1.0f, s));
+    v = std::max(0.0f, std::min(1.0f, v));
+ 
+    
+ 
+    if(s == 0) {
+        // Achromatic (grey)
+        r = g = b = v;
+        return CL_Vec3f(v, v, v);
+    }
+ 
+    h *= 6; // sector 0 to 5
+    i = floor(h);
+    float f = h - i; // factorial part of h
+    float p = v * (1 - s);
+    float q = v * (1 - s * f);
+    float t = v * (1 - s * (1 - f));
+ 
+    switch(i) {
+    case 0:
+        r = v;
+        g = t;
+        b = p;
+        break;
+        
+    case 1:
+        r = q;
+        g = v;
+        b = p;
+        break;
+        
+    case 2:
+        r = p;
+        g = v;
+        b = t;
+        break;
+        
+    case 3:
+        r = p;
+        g = q;
+        b = v;
+        break;
+        
+    case 4:
+        r = t;
+        g = p;
+        b = v;
+        break;
+        
+    default: // case 5:
+        r = v;
+        g = p;
+        b = q;
+    }
+ 
+    return CL_Vec3f( r, g, b );
+
+}
 
 class egl_context {
     
@@ -231,8 +299,10 @@ static const char gVertexShader[] =
 
 static const char gFragmentShader[] = 
     "precision mediump float;\n"
+    "uniform vec4 color;\n"
     "void main() {\n"
-    "  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+    //"  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+    "  gl_FragColor = color;\n"
     "}\n";
 
 
@@ -287,6 +357,10 @@ public:
             gv_mvp_handle = glGetUniformLocation(program, "mvp_matrix");
             LOGI("glGetAttribLocation(\"mvp_matrix\") = %d\n", gv_mvp_handle);
             
+            color_handle_ = glGetUniformLocation(program, "color");
+            LOGI("glGetAttribLocation(\"color\") = %d\n", color_handle_);
+            
+            
         } else {
             throw std::runtime_error( "glCreateProgram failed" );
         }
@@ -309,6 +383,10 @@ public:
         return gvPositionHandle;
     }
     
+    
+    GLuint color_handle() {
+        return color_handle_;
+    }
 private:
     GLuint loadShader(GLenum shaderType, const char* pSource) {
         GLuint shader = glCreateShader(shaderType);
@@ -340,6 +418,7 @@ private:
     GLuint program;
     GLuint gvPositionHandle;
     GLuint gv_mvp_handle;
+    GLuint color_handle_;
 };
 
 // GLuint gProgram;
@@ -448,12 +527,12 @@ struct engine_state {
 };
 
 
-const static size_t hd_size = 1024 * 1024 * 200;
+const static size_t hd_size = 1024 * 1024 * 1;
 class engine {
 public:
     
     
-    engine() : grey(0), huge_data_(hd_size, 1) {
+    engine() : grey(0), hue_(0.0), huge_data_(hd_size, 1) {
         test_assets();
     }
     engine( const engine_state &state ):  huge_data_(hd_size, 1) {
@@ -515,6 +594,13 @@ public:
         glEnable(GL_CULL_FACE);
         
         
+        CL_Vec3f rgb_col = hsv_to_rgb( hue_, .7, 1.0 );
+        
+        hue_ += 0.08;
+        while( hue_ > 1.0 ) {
+            hue_ -= 1.0;
+        }
+        
         grey += 0.01f;
         if (grey > 1.0f) {
             grey = 0.0f;
@@ -524,15 +610,17 @@ public:
             //         CL_Mat4f mv_mat = CL_Mat4f::ortho(-10, 10, -10, 10, 0.2, 200 );
             CL_Mat4f mv_mat = CL_Mat4f::perspective( 60, 1.5, 0.2, 500 );
             CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, grey * 10, 0, 0, 0, 0.0, 1.0, 0.0 );
+//             CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, 2, 0, 0, 0, 0.0, 1.0, 0.0 );
             //mvp_mat = mv_mat * p_mat;
             mvp_mat = CL_Mat4f::identity();
             
-            CL_Mat4f rot = CL_Mat4f::rotate( CL_Angle::from_degrees(grey * 30.0), 0, 0.0, 1.0 );
+            CL_Mat4f rot = CL_Mat4f::rotate( CL_Angle::from_degrees(grey * 720.0), 0, 0.0, 1.0 );
             
             mvp_mat = rot * p_mat * mv_mat;
         }
         //     LOGI( "grey: %f\n", grey );
-        glClearColor(grey, grey, grey, 1.0f);
+        //glClearColor(grey, grey, grey, 1.0f);
+        glClearColor( 0, 0, 0, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         checkGlError("glClearColor");
         //     g_ctx.swap_buffers();
@@ -543,7 +631,7 @@ public:
         
        // program_.use();
         
-        
+        glUniform4f( gts->program()->color_handle(), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
         
         glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, mvp_mat.matrix );
         checkGlError("glUniformMatrix4fv" );
@@ -563,6 +651,7 @@ public:
     
 private:
     float grey;
+    float hue_;
     std::vector<char>  huge_data_;
 };
 
