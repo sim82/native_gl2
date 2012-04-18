@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
+add_subdirectory(Box2D)
+
 #notice the "recycling" of CMAKE_C_FLAGS
 #this is necessary to pick up android flags
 set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -pedantic -fPIC" )
@@ -29,4 +31,4 @@ set(CLANLIB_SRC
 add_library(native-activity SHARED ${MY_SRCS} ${CLANLIB_SRC})
 
 #link the module like any other
-target_link_libraries(native-activity ${LIBRARY_DEPS} )
+target_link_libraries(native-activity ${LIBRARY_DEPS} Box2D )

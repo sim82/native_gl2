@@ -24,6 +24,8 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
+#include <Box2D/Box2D.h>
+
 #include <cassert>
 #include <cstdio>
 #include <memory>
@@ -307,6 +309,32 @@ static const char gFragmentShader[] =
 
 
 
+    
+template<typename P>
+class compare_first_string {
+public:
+    bool operator()(const P &a, const P &b ) const {
+        return a.first < b.first;
+    }
+    
+//     bool operator()(const std::string &a, const P &b ) const {
+//         return a < b.first;
+//     }
+//     
+//     bool operator()(const P &a, const std::string &b ) const {
+//         return a.first < b;
+//     }
+    
+    bool operator()( const char *a, const P &b ) const {
+        return a < b.first;
+    }
+    
+    bool operator()(const P &a, const char *b ) const {
+        return a.first < b;
+    }
+    
+};
+    
 class gl_program {
 public:
     gl_program() : program(0) {
@@ -387,6 +415,32 @@ public:
     GLuint color_handle() {
         return color_handle_;
     }
+    
+    GLuint uniform_handle( const char *name ) {
+        // maybe this is not faster than calling glGetUniformLocation, but at least it is guaranteed not to be slow...
+        
+        std::vector<name_handle_pair>::iterator it = std::lower_bound( uniform_handles_.begin(), uniform_handles_.end(), name, compare_first_string<name_handle_pair>() );
+
+        if( it != uniform_handles_.end() && it->first == name ) {
+            return it->second;
+        }
+        
+        GLuint h = glGetUniformLocation( program, name );
+        
+        if( h == -1 ) {
+            std::stringstream ss;
+            ss << "glGetUniformLocation failed: " << name;
+            throw std::runtime_error( ss.str() );
+        }
+        
+        bool need_sort = (it != uniform_handles_.end());
+        uniform_handles_.push_back( std::make_pair( name, h ));
+        if( need_sort ) {
+            std::sort( uniform_handles_.begin(), uniform_handles_.end(), compare_first_string<name_handle_pair>() );
+        }
+        
+        return h;
+    }
 private:
     GLuint loadShader(GLenum shaderType, const char* pSource) {
         GLuint shader = glCreateShader(shaderType);
@@ -419,6 +473,10 @@ private:
     GLuint gvPositionHandle;
     GLuint gv_mvp_handle;
     GLuint color_handle_;
+    
+    typedef std::pair<std::string,GLuint> name_handle_pair;
+    
+    std::vector<name_handle_pair> uniform_handles_;
 };
 
 // GLuint gProgram;
@@ -436,6 +494,9 @@ std::string xtostring( const t &x ) {
 const GLfloat gTriangleVertices[] = { 0.0f, 0.5f, -0.5f, -0.5f,
         0.5f, -0.5f };
 
+const GLfloat g_box_vertices[] = { -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f, -0.5f };
+        
+        
 class gl_transient_state {
   
     
@@ -531,14 +592,61 @@ const static size_t hd_size = 1024 * 1024 * 1;
 class engine {
 public:
     
+    void create_phys() {
+        // Define the ground body.
+        b2BodyDef groundBodyDef;
+        groundBodyDef.position.Set(0.0f, -15.0f);
+        
+        // Call the body factory which allocates memory for the ground body
+        // from a pool and creates the ground box shape (also from a pool).
+        // The body is also added to the world.
+        b2Body* groundBody = world_.CreateBody(&groundBodyDef);
+        
+        // Define the ground box shape.
+        b2PolygonShape groundBox;
+        
+        // The extents are the half-widths of the box.
+        groundBox.SetAsBox(50.0f, 10.0f);
+        
+        // Add the ground fixture to the ground body.
+        groundBody->CreateFixture(&groundBox, 0.0f);
+        
+        // Define the dynamic body. We set its position and call the body factory.
+        b2BodyDef bodyDef;
+        bodyDef.type = b2_dynamicBody;
+        bodyDef.position.Set(0.0f, 4.0f);
+        body_ = world_.CreateBody(&bodyDef);
+        
+        body_->SetAngularVelocity( 4.0 );
+        
+        // Define another box shape for our dynamic body.
+        b2PolygonShape dynamicBox;
+        dynamicBox.SetAsBox(1.0f, 1.0f);
+        
+        // Define the dynamic body fixture.
+        b2FixtureDef fixtureDef;
+        fixtureDef.shape = &dynamicBox;
+        
+        // Set the box density to be non-zero, so it will be dynamic.
+        fixtureDef.density = 1.0f;
+        
+        // Override the default friction.
+        fixtureDef.friction = 0.3f;
+
+        // Add the shape to the body.
+        body_->CreateFixture(&fixtureDef);
     
-    engine() : grey(0), hue_(0.0), huge_data_(hd_size, 1) {
+    }
+    engine() : grey(0), hue_(0.0), huge_data_(hd_size, 1), world_(b2Vec2(0.0f, -10.0f))
+    {
+        create_phys();
         test_assets();
     }
-    engine( const engine_state &state ):  huge_data_(hd_size, 1) {
+    engine( const engine_state &state ):  huge_data_(hd_size, 1), world_(b2Vec2(0.0f, -10.0f)) {
      
         grey = std::min( 1.0f, std::max( 0.0f, state.grey ));   
         
+        create_phys();
         test_assets();
     }
     void test_assets() {
@@ -609,14 +717,18 @@ public:
         {
             //         CL_Mat4f mv_mat = CL_Mat4f::ortho(-10, 10, -10, 10, 0.2, 200 );
             CL_Mat4f mv_mat = CL_Mat4f::perspective( 60, 1.5, 0.2, 500 );
-            CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, grey * 10, 0, 0, 0, 0.0, 1.0, 0.0 );
-//             CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, 2, 0, 0, 0, 0.0, 1.0, 0.0 );
+//             CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, grey * 10, 0, 0, 0, 0.0, 1.0, 0.0 );
+            CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, 10, 0, 0, 0, 0.0, 1.0, 0.0 );
             //mvp_mat = mv_mat * p_mat;
             mvp_mat = CL_Mat4f::identity();
             
             CL_Mat4f rot = CL_Mat4f::rotate( CL_Angle::from_degrees(grey * 720.0), 0, 0.0, 1.0 );
+            CL_Mat4f trans = CL_Mat4f::translate( 1.0, 0.0, 0.0 );
             
-            mvp_mat = rot * p_mat * mv_mat;
+            //CL_Mat4f rot1 = CL_Mat4f::rotate( CL_Angle::from_degrees( grey * 360), 1.0, 0.0, 0.0 );
+            
+            //mvp_mat = trans * rot * p_mat * mv_mat;
+            mvp_mat = p_mat * mv_mat;
         }
         //     LOGI( "grey: %f\n", grey );
         //glClearColor(grey, grey, grey, 1.0f);
@@ -631,19 +743,59 @@ public:
         
        // program_.use();
         
-        glUniform4f( gts->program()->color_handle(), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
+        glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
+        checkGlError("glUniform4f" );
         
         glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, mvp_mat.matrix );
         checkGlError("glUniformMatrix4fv" );
         
-        glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+//         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+        glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
         checkGlError("glVertexAttribPointer");
         glEnableVertexAttribArray(gts->program()->position_handle());
         checkGlError("glEnableVertexAttribArray");
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         checkGlError("glDrawArrays");
         
+#if 1
+        float32 timeStep = 1.0f / 60.0f;
+        int32 velocityIterations = 6;
+        int32 positionIterations = 2;
+        
+        
+        
+        // Instruct the world to perform a single step of simulation.
+        // It is generally best to keep the time step and iterations fixed.
+        world_.Step(timeStep, velocityIterations, positionIterations);
+        
+        // Now print the position and angle of the body.
+        b2Vec2 position = body_->GetPosition();
+        float32 angle = body_->GetAngle();
+        
+        
+        CL_Mat4f tr_mat = CL_Mat4f::translate( position.x, position.y, 0.0 );
         //     LOGI( "render\n" );
+        
+        CL_Mat4f all_mat = CL_Mat4f::rotate( CL_Angle::from_radians( angle), 0, 0.0, 1.0 ) 
+                         * CL_Mat4f::translate( position.x, position.y, 0.0 ) * mvp_mat;
+        if( 1 )
+        {
+            glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
+            checkGlError("glUniform4f" );
+            
+            glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, all_mat.matrix );
+            checkGlError("glUniformMatrix4fv" );
+            
+            //         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+            glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
+            checkGlError("glVertexAttribPointer");
+            glEnableVertexAttribArray(gts->program()->position_handle());
+            checkGlError("glEnableVertexAttribArray");
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            checkGlError("glDrawArrays");
+        }
+#endif   
+        
         
         gts->render_post();
     
@@ -653,6 +805,11 @@ private:
     float grey;
     float hue_;
     std::vector<char>  huge_data_;
+    
+    
+    
+    b2World world_;
+    b2Body* body_;
 };
 
 std::auto_ptr<gl_transient_state> g_gl_transient_state;
