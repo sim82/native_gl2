@@ -294,23 +294,51 @@ static void checkGlError(const char* op) {
     }
 }
 
+
+// static const char gVertexShader[] = 
+//     "uniform mat4 mvp_matrix;\n"
+//     "attribute vec4 a_position;\n"
+//     "attribute vec4 a_color;\n"
+//     "void main() {\n"
+//     "  gl_Position = mvp_matrix * a_position;\n"
+//     "}\n";
+// 
+// static const char gFragmentShader[] = 
+//     "precision mediump float;\n"
+//     "uniform vec4 color;\n"
+//     "void main() {\n"
+//     "  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+//    // "  gl_FragColor = color;\n"
+//     "}\n";
+
+
 static const char gVertexShader[] = 
     "uniform mat4 mvp_matrix;\n"
+//     "attribute vec4 xxx;\n"
     "attribute vec4 a_position;\n"
+    "attribute vec4 a_color;\n"
+    "varying vec4 v_color;\n"
+//     "void main() {\n"
+//     "  gl_Position = mvp_matrix * gl_Vertex;\n"
+//     "  gl_FrontColor = gl_Color;\n"
+//     "}\n";
+
     "void main() {\n"
     "  gl_Position = mvp_matrix * a_position;\n"
+    "  v_color = a_color;\n"
     "}\n";
-
 static const char gFragmentShader[] = 
     "precision mediump float;\n"
-    "in vec4 color;\n"
+    "varying vec4 v_color;\n"
+    //"uniform vec4 color;\n"
+    //"attribute vec4 color;\n"
     "void main() {\n"
-    //"  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
-    "  gl_FragColor = color;\n"
+//     "  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+    "  gl_FragColor = v_color;\n"
     "}\n";
 
 
-
+const GLfloat g_box_vertices[] = { -0.5f, 0.5f, 0, -0.5f, -0.5f, 0, 0.5f, 0.5f, 0, 0.5f, -0.5f, 0 };
     
 template<typename P>
 class compare_first_string {
@@ -337,156 +365,6 @@ public:
     
 };
     
-
-#if 0 // should be superseeded by version in gl_bits.h
-class gl_program {
-public:
-    gl_program() : program(0) {
-        
-    }
-    
-    gl_program( const char *vertex_src, const char *fragment_source ) {
-        GLuint vertexShader = loadShader(GL_VERTEX_SHADER, vertex_src);
-        if (!vertexShader) {
-            throw std::runtime_error( "load vertex shader failed.\n" );
-        }
-
-        GLuint pixelShader = loadShader(GL_FRAGMENT_SHADER, fragment_source);
-        if (!pixelShader) {
-          throw std::runtime_error( "load fragment shader failed.\n" );
-        }
-        
-        program = glCreateProgram();
-        if (program) {
-            glAttachShader(program, vertexShader);
-            checkGlError("glAttachShader");
-            glAttachShader(program, pixelShader);
-            checkGlError("glAttachShader");
-            glLinkProgram(program);
-            GLint linkStatus = GL_FALSE;
-            glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
-            if (linkStatus != GL_TRUE) {
-                GLint bufLength = 0;
-                glGetProgramiv(program, GL_INFO_LOG_LENGTH, &bufLength);
-                if (bufLength) {
-                    
-                    std::vector<char> buf( bufLength );
-//                     char* buf = (char*) malloc(bufLength);
-                    
-                    glGetProgramInfoLog(program, bufLength, NULL, buf.data());
-                    LOGE("Could not link program:\n%s\n", buf.data());
-                        
-                    
-                }
-            
-            }
-            
-            gvPositionHandle = glGetAttribLocation(program, "vPosition");
-            checkGlError("glGetAttribLocation");
-            LOGI("glGetAttribLocation(\"vPosition\") = %d\n",
-                 gvPositionHandle);
-            
-            gv_mvp_handle = glGetUniformLocation(program, "mvp_matrix");
-            LOGI("glGetAttribLocation(\"mvp_matrix\") = %d\n", gv_mvp_handle);
-            
-            color_handle_ = glGetUniformLocation(program, "color");
-            LOGI("glGetAttribLocation(\"color\") = %d\n", color_handle_);
-            
-            
-        } else {
-            throw std::runtime_error( "glCreateProgram failed" );
-        }
-
-    }
-    ~gl_program() {
-        // TODO: teardown gl resources
-        glDeleteProgram(program);
-        program = 0;
-    }
-    void use() {
-        glUseProgram(program);
-        checkGlError("glUseProgram");
-    }
-    
-    GLuint mvp_handle() {
-        return gv_mvp_handle;
-    }
-    GLuint position_handle() {
-        return gvPositionHandle;
-    }
-    
-    
-    GLuint color_handle() {
-        return color_handle_;
-    }
-    
-    GLuint uniform_handle( const char *name ) {
-        // maybe this is not faster than calling glGetUniformLocation, but at least it is guaranteed not to be slow...
-        
-        std::vector<name_handle_pair>::iterator it = std::lower_bound( uniform_handles_.begin(), uniform_handles_.end(), name, compare_first_string<name_handle_pair>() );
-
-        if( it != uniform_handles_.end() && it->first == name ) {
-            return it->second;
-        }
-        
-        GLuint h = glGetUniformLocation( program, name );
-        
-        if( h == -1 ) {
-            std::stringstream ss;
-            ss << "glGetUniformLocation failed: " << name;
-            throw std::runtime_error( ss.str() );
-        }
-        
-        bool need_sort = (it != uniform_handles_.end());
-        uniform_handles_.push_back( std::make_pair( name, h ));
-        if( need_sort ) {
-            std::sort( uniform_handles_.begin(), uniform_handles_.end(), compare_first_string<name_handle_pair>() );
-        }
-        
-        return h;
-    }
-private:
-    GLuint loadShader(GLenum shaderType, const char* pSource) {
-        GLuint shader = glCreateShader(shaderType);
-        if (shader) {
-            glShaderSource(shader, 1, &pSource, NULL);
-            glCompileShader(shader);
-            GLint compiled = 0;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-            if (!compiled) {
-                GLint infoLen = 0;
-                glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
-                if (infoLen) {
-                    char* buf = (char*) malloc(infoLen);
-                    if (buf) {
-                        glGetShaderInfoLog(shader, infoLen, NULL, buf);
-                        LOGE("Could not compile shader %d:\n%s\n",
-                             shaderType, buf);
-                        free(buf);
-                    }
-                    glDeleteShader(shader);
-                    shader = 0;
-                }
-            }
-        }
-        return shader;
-    }
-    
-    
-    GLuint program;
-    GLuint gvPositionHandle;
-    GLuint gv_mvp_handle;
-    GLuint color_handle_;
-    
-    typedef std::pair<std::string,GLuint> name_handle_pair;
-    
-    std::vector<name_handle_pair> uniform_handles_;
-};
-#endif
-// GLuint gProgram;
-// GLuint gvPositionHandle;
-// GLuint gv_mvp_handle;
-
 template<typename t>
 std::string xtostring( const t &x ) {
     std::stringstream ss;
@@ -495,11 +373,6 @@ std::string xtostring( const t &x ) {
     return ss.str();
 }
 
-const GLfloat gTriangleVertices[] = { 0.0f, 0.5f, -0.5f, -0.5f,
-        0.5f, -0.5f };
-
-const GLfloat g_box_vertices[] = { -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f, -0.5f };
-        
         
 class gl_transient_state {
   
@@ -524,6 +397,8 @@ public:
         
         checkGlError("glViewport");
         LOGI( ">>>>>>>>> engine()\n" );
+        
+        
     }
     ~gl_transient_state() {
         LOGI( ">>>>>>>>> ~engine()\n" );
@@ -592,323 +467,323 @@ struct engine_state {
 };
 
 
-const static size_t hd_size = 1024 * 1024 * 1;
-class engine {
-public:
-    
-    void create_phys() {
-        // Define the ground body.
-        b2BodyDef groundBodyDef;
-        groundBodyDef.position.Set(0.0f, -15.0f);
-        
-        // Call the body factory which allocates memory for the ground body
-        // from a pool and creates the ground box shape (also from a pool).
-        // The body is also added to the world.
-        b2Body* groundBody = world_.CreateBody(&groundBodyDef);
-        
-        // Define the ground box shape.
-        b2PolygonShape groundBox;
-        
-        // The extents are the half-widths of the box.
-        groundBox.SetAsBox(50.0f, 10.0f);
-        
-        // Add the ground fixture to the ground body.
-        groundBody->CreateFixture(&groundBox, 0.0f);
-        
-        // Define the dynamic body. We set its position and call the body factory.
-        b2BodyDef bodyDef;
-        bodyDef.type = b2_dynamicBody;
-        bodyDef.position.Set(0.0f, 4.0f);
-        body_ = world_.CreateBody(&bodyDef);
-        
-        body_->SetAngularVelocity( 4.0 );
-        
-        // Define another box shape for our dynamic body.
-        b2PolygonShape dynamicBox;
-        dynamicBox.SetAsBox(0.5f, 0.5f);
-        
-        // Define the dynamic body fixture.
-        b2FixtureDef fixtureDef;
-        fixtureDef.shape = &dynamicBox;
-        
-        // Set the box density to be non-zero, so it will be dynamic.
-        fixtureDef.density = 1.0f;
-        
-        // Override the default friction.
-        fixtureDef.friction = 0.3f;
-
-        // Add the shape to the body.
-        body_->CreateFixture(&fixtureDef);
-    
-    }
-    
-    void add_box() {
-        b2BodyDef bodyDef;
-        bodyDef.type = b2_dynamicBody;
-        bodyDef.position.Set(0.0f, 4.0f);
-        b2Body *body = world_.CreateBody(&bodyDef);
-        
-        body->SetAngularVelocity( 4.0 );
-        
-        // Define another box shape for our dynamic body.
-        b2PolygonShape dynamicBox;
-        dynamicBox.SetAsBox(0.5f, 0.5f);
-        
-        // Define the dynamic body fixture.
-        b2FixtureDef fixtureDef;
-        fixtureDef.shape = &dynamicBox;
-        
-        // Set the box density to be non-zero, so it will be dynamic.
-        fixtureDef.density = 1.0f;
-        
-        // Override the default friction.
-        fixtureDef.friction = 0.3f;
-
-        // Add the shape to the body.
-        body->CreateFixture(&fixtureDef);
-        
-        bodies_.push_back( body );
-    }
-    engine() : frame_count_(0), grey(0), hue_(0.0), huge_data_(hd_size, 1), world_(b2Vec2(0.0f, -10.0f))
-    {
-        create_phys();
-        test_assets();
-    }
-    engine( const engine_state &state ):  frame_count_(0), huge_data_(hd_size, 1), world_(b2Vec2(0.0f, -10.0f)) {
-     
-        grey = std::min( 1.0f, std::max( 0.0f, state.grey ));   
-        
-        create_phys();
-        test_assets();
-    }
-    void test_assets() {
-        AAsset* a = AAssetManager_open( g_asset_mgr, "raw/test.jpg", AASSET_MODE_RANDOM );
-        assert( a != 0 );
-        
-        off_t len = AAsset_getLength(a);
-        
-        const char *buf = (const char *)AAsset_getBuffer(a);
-        LOGI( "asset: %p %d\n", a, len );
-        
-        for( size_t i = 0; i < len; ++i ) {
-            LOGI( "x: %c\n", buf[i] );
-        }
-//         AAssetDir *dir = AAssetManager_openDir(g_asset_mgr, "assets" );
+// const static size_t hd_size = 1024 * 1024 * 1;
+// class engine {
+// public:
+//     
+//     void create_phys() {
+//         // Define the ground body.
+//         b2BodyDef groundBodyDef;
+//         groundBodyDef.position.Set(0.0f, -15.0f);
 //         
-//         while( true ) {
-//             const char *name = AAssetDir_getNextFileName(dir);
-//             
-//             if( name == 0 ) {
-//                 break;
-//             }
-//             
-//             LOGI( "asset: %s\n", name );
-//         }
-
-
-    }
-//     void deserialize( const engine_state &state ) {
+//         // Call the body factory which allocates memory for the ground body
+//         // from a pool and creates the ground box shape (also from a pool).
+//         // The body is also added to the world.
+//         b2Body* groundBody = world_.CreateBody(&groundBodyDef);
 //         
+//         // Define the ground box shape.
+//         b2PolygonShape groundBox;
+//         
+//         // The extents are the half-widths of the box.
+//         groundBox.SetAsBox(50.0f, 10.0f);
+//         
+//         // Add the ground fixture to the ground body.
+//         groundBody->CreateFixture(&groundBox, 0.0f);
+//         
+//         // Define the dynamic body. We set its position and call the body factory.
+//         b2BodyDef bodyDef;
+//         bodyDef.type = b2_dynamicBody;
+//         bodyDef.position.Set(0.0f, 4.0f);
+//         body_ = world_.CreateBody(&bodyDef);
+//         
+//         body_->SetAngularVelocity( 4.0 );
+//         
+//         // Define another box shape for our dynamic body.
+//         b2PolygonShape dynamicBox;
+//         dynamicBox.SetAsBox(0.5f, 0.5f);
+//         
+//         // Define the dynamic body fixture.
+//         b2FixtureDef fixtureDef;
+//         fixtureDef.shape = &dynamicBox;
+//         
+//         // Set the box density to be non-zero, so it will be dynamic.
+//         fixtureDef.density = 1.0f;
+//         
+//         // Override the default friction.
+//         fixtureDef.friction = 0.3f;
+// 
+//         // Add the shape to the body.
+//         body_->CreateFixture(&fixtureDef);
+//     
 //     }
-    
-    engine_state serialize() {
-        engine_state state;
-        state.grey = grey;
-        
-        return state;
-    }
-    void render( gl_transient_state *gts ) {
-    
-        if( !gts->visible() ) {
-            return;
-        }
-        LOGI( "engine::render\n" );
-        
-        gts->render_pre();
-        
-		
-		LOGI( "engine::render 1\n" );
-        //CL_Mat4f mv_mat = CL_Mat4f::ortho(-5.0, 5.0, -5.0, 5.0, 0, 200);
-        
-        
-        //     LOGI( "mat: %s\n", xtostring(mv_mat).c_str() );
-        
-        glFrontFace( GL_CCW );
-        glCullFace(GL_BACK);
-        glEnable(GL_CULL_FACE);
-        
-        
-        CL_Vec3f rgb_col = hsv_to_rgb( hue_, .7, 1.0 );
-        
-        hue_ += 0.08;
-        while( hue_ > 1.0 ) {
-            hue_ -= 1.0;
-        }
-        
-        grey += 0.01f;
-        if (grey > 1.0f) {
-            grey = 0.0f;
-        }
-        CL_Mat4f mvp_mat;
-        {
-            //         CL_Mat4f mv_mat = CL_Mat4f::ortho(-10, 10, -10, 10, 0.2, 200 );
-            
-            // FIXME: the mv and p names are mixed up!
-            CL_Mat4f mv_mat = CL_Mat4f::perspective( 60, 1.5, 0.2, 500 );
-//             CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, grey * 10, 0, 0, 0, 0.0, 1.0, 0.0 );
-            CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, 10, 0, 0, 0, 0.0, 1.0, 0.0 );
-            //mvp_mat = mv_mat * p_mat;
-            mvp_mat = CL_Mat4f::identity();
-            
-            CL_Mat4f rot = CL_Mat4f::rotate( CL_Angle::from_degrees(grey * 720.0), 0, 0.0, 1.0 );
-            CL_Mat4f trans = CL_Mat4f::translate( 1.0, 0.0, 0.0 );
-            
-            //CL_Mat4f rot1 = CL_Mat4f::rotate( CL_Angle::from_degrees( grey * 360), 1.0, 0.0, 0.0 );
-            
-            //mvp_mat = trans * rot * p_mat * mv_mat;
-            mvp_mat = p_mat * mv_mat;
-        }
-        
-        
-        //     LOGI( "grey: %f\n", grey );
-        //glClearColor(grey, grey, grey, 1.0f);
-        glClearColor( 0, 0, 0, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        checkGlError("glClearColor");
-		
-        //     g_ctx.swap_buffers();
-        //return;
-        
-        glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-        checkGlError("glClear");
-        
-       // program_.use();
-        
-        glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
-        checkGlError("glUniform4f" );
-        
-        glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, mvp_mat.matrix );
-        checkGlError("glUniformMatrix4fv" );
-        GLuint position_handle = gts->program()->a_position_handle();
-		LOGI( "engine::render 2\n" );
-		
-//         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
-        glVertexAttribPointer( position_handle, 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
-        checkGlError("glVertexAttribPointer");
-        glEnableVertexAttribArray(position_handle);
-        checkGlError("glEnableVertexAttribArray");
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        checkGlError("glDrawArrays");
-        
-#if 1
-        float32 timeStep = 1.0f / 60.0f;
-        int32 velocityIterations = 6;
-        int32 positionIterations = 2;
-        
-        
-        LOGI( "engine::render 3\n" );
-        // Instruct the world to perform a single step of simulation.
-        // It is generally best to keep the time step and iterations fixed.
-        world_.Step(timeStep, velocityIterations, positionIterations);
-        
-		
-		LOGI( "engine::render 4\n" );
-        // Now print the position and angle of the body.
-        b2Vec2 position = body_->GetPosition();
-        float32 angle = body_->GetAngle();
-        
-        
-        CL_Mat4f tr_mat = CL_Mat4f::translate( position.x, position.y, 0.0 );
-        //     LOGI( "render\n" );
-        
-        CL_Mat4f all_mat = CL_Mat4f::rotate( CL_Angle::from_radians( angle), 0, 0.0, 1.0 ) 
-                         * CL_Mat4f::translate( position.x, position.y, 0.0 ) * mvp_mat;
-        if( 1 )
-        {
-            glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
-            checkGlError("glUniform4f" );
-            
-            glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, all_mat.matrix );
-            checkGlError("glUniformMatrix4fv" );
-            
-            //         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
-            glVertexAttribPointer( position_handle, 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
-            checkGlError("glVertexAttribPointer");
-            glEnableVertexAttribArray(position_handle);
-            checkGlError("glEnableVertexAttribArray");
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-            checkGlError("glDrawArrays");
-        }
-        
-        float hue2 = hue_;
-        while( hue2 > 1.0 ) {
-            hue2 -= 1.0;
-        }
-        
-        LOGI( "engine::render 5\n" );
-        for( size_t i = 0, s = bodies_.size(); i < s; ++i ) {
-// 			LOGI( "body\n" );
-            // Now print the position and angle of the body.
-            b2Vec2 position = bodies_[i]->GetPosition();
-            float32 angle = bodies_[i]->GetAngle();
-            
-            
-            CL_Mat4f tr_mat = CL_Mat4f::translate( position.x, position.y, 0.0 );
-            //     LOGI( "render\n" );
-            
-            CL_Mat4f all_mat = CL_Mat4f::rotate( CL_Angle::from_radians( angle), 0, 0.0, 1.0 ) 
-                             * CL_Mat4f::translate( position.x, position.y, 0.0 ) * mvp_mat;
-            
-            {
-                CL_Vec3f rgb_col = hsv_to_rgb( hue2, .7, 1.0 );   
-                
-                hue2 += 0.01;
-                while( hue2 > 1.0 ) {
-                    hue2 -= 1.0;
-                }
-                glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
-                checkGlError("glUniform4f" );
-                
-                glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, all_mat.matrix );
-                checkGlError("glUniformMatrix4fv" );
-                
-                //         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
-                glVertexAttribPointer( position_handle, 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
-                checkGlError("glVertexAttribPointer");
-                glEnableVertexAttribArray(position_handle);
-                checkGlError("glEnableVertexAttribArray");
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-                checkGlError("glDrawArrays");
-            }   
-        }
-        
-#endif   
-        LOGI( "engine::render 5\n" );
-        
-        gts->render_post();
-    
-		LOGI( "engine::render 6\n" );
-        if( frame_count_ % 60 == 0 ) {
-            add_box();
-        }
-        
-        ++frame_count_;
-    }
-    
-private:
-    int frame_count_;
-    
-    float grey;
-    float hue_;
-    std::vector<char>  huge_data_;
-    
-    
-    
-    b2World world_;
-    b2Body* body_;
-    
-    std::vector<b2Body *> bodies_;
-};
+//     
+//     void add_box() {
+//         b2BodyDef bodyDef;
+//         bodyDef.type = b2_dynamicBody;
+//         bodyDef.position.Set(0.0f, 4.0f);
+//         b2Body *body = world_.CreateBody(&bodyDef);
+//         
+//         body->SetAngularVelocity( 4.0 );
+//         
+//         // Define another box shape for our dynamic body.
+//         b2PolygonShape dynamicBox;
+//         dynamicBox.SetAsBox(0.5f, 0.5f);
+//         
+//         // Define the dynamic body fixture.
+//         b2FixtureDef fixtureDef;
+//         fixtureDef.shape = &dynamicBox;
+//         
+//         // Set the box density to be non-zero, so it will be dynamic.
+//         fixtureDef.density = 1.0f;
+//         
+//         // Override the default friction.
+//         fixtureDef.friction = 0.3f;
+// 
+//         // Add the shape to the body.
+//         body->CreateFixture(&fixtureDef);
+//         
+//         bodies_.push_back( body );
+//     }
+//     engine() : frame_count_(0), grey(0), hue_(0.0), huge_data_(hd_size, 1), world_(b2Vec2(0.0f, -10.0f))
+//     {
+//         create_phys();
+//         test_assets();
+//     }
+//     engine( const engine_state &state ):  frame_count_(0), huge_data_(hd_size, 1), world_(b2Vec2(0.0f, -10.0f)) {
+//      
+//         grey = std::min( 1.0f, std::max( 0.0f, state.grey ));   
+//         
+//         create_phys();
+//         test_assets();
+//     }
+//     void test_assets() {
+//         AAsset* a = AAssetManager_open( g_asset_mgr, "raw/test.jpg", AASSET_MODE_RANDOM );
+//         assert( a != 0 );
+//         
+//         off_t len = AAsset_getLength(a);
+//         
+//         const char *buf = (const char *)AAsset_getBuffer(a);
+//         LOGI( "asset: %p %d\n", a, len );
+//         
+//         for( size_t i = 0; i < len; ++i ) {
+//             LOGI( "x: %c\n", buf[i] );
+//         }
+// //         AAssetDir *dir = AAssetManager_openDir(g_asset_mgr, "assets" );
+// //         
+// //         while( true ) {
+// //             const char *name = AAssetDir_getNextFileName(dir);
+// //             
+// //             if( name == 0 ) {
+// //                 break;
+// //             }
+// //             
+// //             LOGI( "asset: %s\n", name );
+// //         }
+// 
+// 
+//     }
+// //     void deserialize( const engine_state &state ) {
+// //         
+// //     }
+//     
+//     engine_state serialize() {
+//         engine_state state;
+//         state.grey = grey;
+//         
+//         return state;
+//     }
+//     void render( gl_transient_state *gts ) {
+//     
+//         if( !gts->visible() ) {
+//             return;
+//         }
+//         LOGI( "engine::render\n" );
+//         
+//         gts->render_pre();
+//         
+//         
+//         LOGI( "engine::render 1\n" );
+//         //CL_Mat4f mv_mat = CL_Mat4f::ortho(-5.0, 5.0, -5.0, 5.0, 0, 200);
+//         
+//         
+//         //     LOGI( "mat: %s\n", xtostring(mv_mat).c_str() );
+//         
+//         glFrontFace( GL_CCW );
+//         glCullFace(GL_BACK);
+//         glEnable(GL_CULL_FACE);
+//         
+//         
+//         CL_Vec3f rgb_col = hsv_to_rgb( hue_, .7, 1.0 );
+//         
+//         hue_ += 0.08;
+//         while( hue_ > 1.0 ) {
+//             hue_ -= 1.0;
+//         }
+//         
+//         grey += 0.01f;
+//         if (grey > 1.0f) {
+//             grey = 0.0f;
+//         }
+//         CL_Mat4f mvp_mat;
+//         {
+//             //         CL_Mat4f mv_mat = CL_Mat4f::ortho(-10, 10, -10, 10, 0.2, 200 );
+//             
+//             // FIXME: the mv and p names are mixed up!
+//             CL_Mat4f mv_mat = CL_Mat4f::perspective( 60, 1.5, 0.2, 500 );
+// //             CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, grey * 10, 0, 0, 0, 0.0, 1.0, 0.0 );
+//             CL_Mat4f p_mat = CL_Mat4f::look_at( 0, 0, 10, 0, 0, 0, 0.0, 1.0, 0.0 );
+//             //mvp_mat = mv_mat * p_mat;
+//             mvp_mat = CL_Mat4f::identity();
+//             
+//             CL_Mat4f rot = CL_Mat4f::rotate( CL_Angle::from_degrees(grey * 720.0), 0, 0.0, 1.0 );
+//             CL_Mat4f trans = CL_Mat4f::translate( 1.0, 0.0, 0.0 );
+//             
+//             //CL_Mat4f rot1 = CL_Mat4f::rotate( CL_Angle::from_degrees( grey * 360), 1.0, 0.0, 0.0 );
+//             
+//             //mvp_mat = trans * rot * p_mat * mv_mat;
+//             mvp_mat = p_mat * mv_mat;
+//         }
+//         
+//         
+//         //     LOGI( "grey: %f\n", grey );
+//         //glClearColor(grey, grey, grey, 1.0f);
+//         glClearColor( 0, 0, 0, 1.0f);
+//         glClear(GL_COLOR_BUFFER_BIT);
+//         checkGlError("glClearColor");
+//         
+//         //     g_ctx.swap_buffers();
+//         //return;
+//         
+//         glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+//         checkGlError("glClear");
+//         
+//        // program_.use();
+//         
+//         glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
+//         checkGlError("glUniform4f" );
+//         
+//         glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, mvp_mat.matrix );
+//         checkGlError("glUniformMatrix4fv" );
+//         GLuint position_handle = gts->program()->a_position_handle();
+//         LOGI( "engine::render 2\n" );
+//         
+// //         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+//         glVertexAttribPointer( position_handle, 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
+//         checkGlError("glVertexAttribPointer");
+//         glEnableVertexAttribArray(position_handle);
+//         checkGlError("glEnableVertexAttribArray");
+//         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+//         checkGlError("glDrawArrays");
+//         
+// #if 1
+//         float32 timeStep = 1.0f / 60.0f;
+//         int32 velocityIterations = 6;
+//         int32 positionIterations = 2;
+//         
+//         
+//         LOGI( "engine::render 3\n" );
+//         // Instruct the world to perform a single step of simulation.
+//         // It is generally best to keep the time step and iterations fixed.
+//         world_.Step(timeStep, velocityIterations, positionIterations);
+//         
+//         
+//         LOGI( "engine::render 4\n" );
+//         // Now print the position and angle of the body.
+//         b2Vec2 position = body_->GetPosition();
+//         float32 angle = body_->GetAngle();
+//         
+//         
+//         CL_Mat4f tr_mat = CL_Mat4f::translate( position.x, position.y, 0.0 );
+//         //     LOGI( "render\n" );
+//         
+//         CL_Mat4f all_mat = CL_Mat4f::rotate( CL_Angle::from_radians( angle), 0, 0.0, 1.0 ) 
+//                          * CL_Mat4f::translate( position.x, position.y, 0.0 ) * mvp_mat;
+//         if( 1 )
+//         {
+//             glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
+//             checkGlError("glUniform4f" );
+//             
+//             glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, all_mat.matrix );
+//             checkGlError("glUniformMatrix4fv" );
+//             
+//             //         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+//             glVertexAttribPointer( position_handle, 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
+//             checkGlError("glVertexAttribPointer");
+//             glEnableVertexAttribArray(position_handle);
+//             checkGlError("glEnableVertexAttribArray");
+//             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+//             checkGlError("glDrawArrays");
+//         }
+//         
+//         float hue2 = hue_;
+//         while( hue2 > 1.0 ) {
+//             hue2 -= 1.0;
+//         }
+//         
+//         LOGI( "engine::render 5\n" );
+//         for( size_t i = 0, s = bodies_.size(); i < s; ++i ) {
+// //          LOGI( "body\n" );
+//             // Now print the position and angle of the body.
+//             b2Vec2 position = bodies_[i]->GetPosition();
+//             float32 angle = bodies_[i]->GetAngle();
+//             
+//             
+//             CL_Mat4f tr_mat = CL_Mat4f::translate( position.x, position.y, 0.0 );
+//             //     LOGI( "render\n" );
+//             
+//             CL_Mat4f all_mat = CL_Mat4f::rotate( CL_Angle::from_radians( angle), 0, 0.0, 1.0 ) 
+//                              * CL_Mat4f::translate( position.x, position.y, 0.0 ) * mvp_mat;
+//             
+//             {
+//                 CL_Vec3f rgb_col = hsv_to_rgb( hue2, .7, 1.0 );   
+//                 
+//                 hue2 += 0.01;
+//                 while( hue2 > 1.0 ) {
+//                     hue2 -= 1.0;
+//                 }
+//                 glUniform4f( gts->program()->uniform_handle("color"), rgb_col.r, rgb_col.g, rgb_col.b, 1.0 );
+//                 checkGlError("glUniform4f" );
+//                 
+//                 glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, all_mat.matrix );
+//                 checkGlError("glUniformMatrix4fv" );
+//                 
+//                 //         glVertexAttribPointer( gts->program()->position_handle(), 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+//                 glVertexAttribPointer( position_handle, 2, GL_FLOAT, GL_FALSE, 0, g_box_vertices);
+//                 checkGlError("glVertexAttribPointer");
+//                 glEnableVertexAttribArray(position_handle);
+//                 checkGlError("glEnableVertexAttribArray");
+//                 glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+//                 checkGlError("glDrawArrays");
+//             }   
+//         }
+//         
+// #endif   
+//         LOGI( "engine::render 5\n" );
+//         
+//         gts->render_post();
+//     
+//         LOGI( "engine::render 6\n" );
+//         if( frame_count_ % 60 == 0 ) {
+//             add_box();
+//         }
+//         
+//         ++frame_count_;
+//     }
+//     
+// private:
+//     int frame_count_;
+//     
+//     float grey;
+//     float hue_;
+//     std::vector<char>  huge_data_;
+//     
+//     
+//     
+//     b2World world_;
+//     b2Body* body_;
+//     
+//     std::vector<b2Body *> bodies_;
+// };
 class light_dynamic {
 public:
     light_dynamic() {}
@@ -952,43 +827,7 @@ std::string hash_to_filename( uint64_t hash ) {
     return ss.str();
 }
 
-// class scene_unit {
-// public:
-//     scene_unit( std::istream &is, const vec3i &base_pos )
-//       : 
-//       base_pos_(base_pos),
-//       scene_static_( base_pos )
-//     {
-//         //std::ifstream is( "cryistal-castle-hidden-ramp.txt" );
-//      //    std::ifstream is( "house1.txt" );
-//         //std::ifstream is( "cryistal-castle-tree-wave.txt" );
-// 
-//         
-//     }
-//     
-//     light_dynamic *get_light_dynamic() {
-//         return &light_dynamic_;
-//     }
-//     
-//     void rad_update() {
-//         
-//     }
-//     
-//     size_t num_planes() {
-//         return scene_static_.planes().size();
-//     }
-//     
-//     const scene_static &get_scene_static() const {
-//         return scene_static_;
-//     }
-// private:
-//     
-//     vec3i base_pos_;
-//     
-//     
-//     
-//     
-// };
+
 
 
 class render_unit {
@@ -997,6 +836,7 @@ public:
     : base_pos_(base_pos),
     scene_static_(base_pos)
     {
+        LOGI( "render_unit start setup\n" );
         assert( is.good() );
 //         height_fields_ = crystal_bits::load_crystal(is, pump_factor_);
 //         std::cout << "hf: " << height_fields_.size() << "\n";
@@ -1011,36 +851,37 @@ public:
          base_pos_.x *= pump_factor;
          base_pos_.z *= pump_factor;
         scene_static_.init_solid_from_crystal(is, pump_factor);
-        
+        LOGI( "render_unit init solid\n" );
 
 //        scene_static_.init_planes();
         scene_static_.init_strips();
         uint64_t scene_hash = scene_static_.hash();
         auto bin_name = hash_to_filename(scene_hash);
-        
-        std::cout << "baked name: " << bin_name << "\n";
-        try {
-            std::ifstream is( bin_name.c_str() );
-            
-            
-            light_static_ = light_static( is, scene_hash );
-        } catch( std::runtime_error x ) {
-            
-            std::cerr << "load failed. recreating. error:\n" << x.what() << std::endl;
-            
-            light_static_ = setup_formfactors(scene_static_.planes(), scene_static_.solid());    
-        }
-        
-        if( !false ) {
-            std::ofstream os( bin_name.c_str() );
-            light_static_.write(os, scene_hash);
-        }
+        light_static_ = setup_formfactors(scene_static_.planes(), scene_static_.solid());
+//         std::cout << "baked name: " << bin_name << "\n";
+//         try {
+//             std::ifstream is( bin_name.c_str() );
+//             
+//             
+//             light_static_ = light_static( is, scene_hash );
+//         } catch( std::runtime_error x ) {
+//             
+//             std::cerr << "load failed. recreating. error:\n" << x.what() << std::endl;
+//             
+//             light_static_ = setup_formfactors(scene_static_.planes(), scene_static_.solid());    
+//         }
+//         
+//         if( !false ) {
+//             std::ofstream os( bin_name.c_str() );
+//             light_static_.write(os, scene_hash);
+//         }
         
         
         light_static_.do_postprocessing();
+        LOGI( "render_unit init postprocessing: %d %d\n", scene_static_.planes().size(), light_static_.num_planes());
         
         light_dynamic_ = light_dynamic(scene_static_.planes().size() );
-        rad_core_ = make_rad_core_threaded(scene_static_, light_static_);
+        rad_core_ = make_rad_core_null(scene_static_, light_static_);
         
         
         
@@ -1060,13 +901,15 @@ public:
     }
     
     void update() {
-        
+
         rad_core_->set_emit( *light_dynamic_.emit() );
+
         rad_core_->copy( light_dynamic_.rad() );
-        
+
         
 //         vbob_.update_color( light_dynamic_.rad()->begin(), light_dynamic_.rad()->end());
         vbob_ts_.update_color( light_dynamic_.rad()->begin(), light_dynamic_.rad()->end());
+
         
     }
     void draw( gl_program &prog ) {
@@ -1088,30 +931,153 @@ private:
 //     vbo_builder vbob_;
     vbo_builder_tristrip vbob_ts_;
 };
-class engine_ortho {
+
+class player {
 public:
-    engine_ortho() {
-        std::ifstream is( "cryistal-castle-hidden-ramp.txt" );
-        unit_ = make_unique<render_unit>(is, vec3f( -40.0, -20.0, -40.0 ));
+    player() : pos_( 0.0, 0.0, 5.0 ), rot_x_(0), rot_y_(0)
+    {}
+    
+    const vec3f &pos() const {
+        return pos_;
+    }
+    
+    float rot_x() const {
         
+        return rot_x_;
+    }
+    float rot_y() const {
+        
+        return rot_y_;
     }
     
     
-    void render() {
+    void move() {
+        //rot_x_ += 0.1;
+        rot_y_ += 0.1;
+    }
+private:
+    vec3f pos_;
+    float rot_x_;
+    float rot_y_;
+};
+
+class engine_ortho {
+public:
+    void init() {
+        
+        light_weird_ = vec3f(0,0,0);
+    }
+    
+    engine_ortho() {
+        init();
+    }
+    engine_ortho( engine_state &state ) {
+        init();
+    }
+    CL_Mat4f setup_perspective( const player &camera ) {
+//         glMatrixMode(GL_PROJECTION);                        //hello
+
+        
+        CL_Mat4f proj_p = CL_Mat4f::perspective( 60, 1.5, 0.2, 500 );
+            //      CL_Mat4f proj = CL_Mat4f::ortho( -20.0 * pump_factor_, 20.0 * pump_factor_, -15.0 * pump_factor_, 15.0 * pump_factor_, 0, 200 );
+            //CL_Mat4f proj = CL_Mat4f::ortho( -40, 40, -30, 30, 0, 200 );
+
+
+//         glLoadMatrixf( proj_p.matrix );
+        
+
+        //          std::cout << "pos: " << player_pos << "\n";
+
+//         glMatrixMode( GL_MODELVIEW );
+        
+        const vec3f &player_pos = camera.pos();
+        CL_Mat4f proj_mv = CL_Mat4f::translate(-player_pos.x, -player_pos.y, -player_pos.z) * CL_Mat4f::rotate(CL_Angle(-camera.rot_x(), cl_degrees),CL_Angle(-camera.rot_y(),cl_degrees),CL_Angle(), cl_XYZ);
+//         glLoadMatrixf(proj_mv.matrix);
+        
+        
+        return proj_mv * proj_p;
+    }
+    void render( gl_transient_state *gts ) {
+        if( !gts->visible() ) {
+            return;
+        
+            
+            
+        }
+        
+        if( unit_.get() == nullptr ) {
+            std::ifstream is( "/sdcard/house1.txt" );
+            
+            if( !is.good() ) {
+                throw std::runtime_error( "cannot open level\n" );
+            }
+            //std::ifstream is( "cryistal-castle-hidden-ramp.txt" );
+            
+            unit_ = make_unique<render_unit>(is, vec3f( -40.0, -20.0, -40.0 ));
+            LOGI( "render_unit init done\n" );   
+        }
+        
+//         LOGI( "engine::render\n" );
+        
+        gts->render_pre();
+        
+        glFrontFace( GL_CCW );
+        glCullFace(GL_BACK);
+        glEnable(GL_CULL_FACE);
+        
+        
+        glClearColor( 0, 0, 0, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+        
+        
+//         glBindBuffer(GL_ARRAY_BUFFER, 0);
+//         glVertexAttribPointer( gts->program()->a_position_handle(), 3, GL_FLOAT, GL_FALSE, 0, g_box_vertices); check_gl_error;
+//         
+//         glEnableVertexAttribArray(gts->program()->a_color_handle()); check_gl_error;
+//         glEnableVertexAttribArray(gts->program()->a_position_handle()); check_gl_error;
+//         checkGlError("glEnableVertexAttribArray");
+//         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); check_gl_error;
+        
+#if 1
         unit_->clear_emit();
+
+        //vec3f light_weird( 0, 0, 30 );
+        light_weird_.x += 0.5;
+        if(light_weird_.x > 20 ) {
+            light_weird_.x = -20;
+        }
         
-        vec3f light_weird( 0, 0, 30 );
-        unit_->render_light( light_weird, vec3f(1.0, 0.8, 0.6 ));
+        unit_->render_light( light_weird_, vec3f(1.0, 0.8, 0.6 ));
+       
+        p1_.move();
+        auto mat_mvp = setup_perspective(p1_);
+        glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, mat_mvp.matrix ); check_gl_error;
+            
+        
         unit_->update();
+        unit_->draw(*gts->program());
+#endif
         
+        gts->render_post();
+       
+    }
+    
+    engine_state serialize() {
+        return engine_state();
+    }
+    void drop_transient_gl_state() {
+        unit_.reset(nullptr);
     }
 private:
     
     std::unique_ptr<render_unit> unit_;
+    player p1_;
+    vec3f light_weird_;
 };
 
 std::auto_ptr<gl_transient_state> g_gl_transient_state;
-std::auto_ptr<engine> g_engine(0);
+std::auto_ptr<engine_ortho> g_engine(0);
 
 
 static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
@@ -1181,10 +1147,10 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
                 assert( app->savedStateSize == sizeof( engine_state ) );
                 
                 
-                g_engine.reset( new engine(*((engine_state *)app->savedState)) );
+                g_engine.reset( new engine_ortho(*((engine_state *)app->savedState)) );
             } else {
             
-                g_engine.reset( new engine() );
+                g_engine.reset( new engine_ortho() );
             }
         }
             
@@ -1228,7 +1194,9 @@ private:
 };
 
 void android_main(struct android_app* state) {
-//     struct engine engine;
+
+    try {
+    //     struct engine engine;
 // 
 //     // Make sure glue isn't stripped.
     app_dummy();
@@ -1293,6 +1261,7 @@ void android_main(struct android_app* state) {
 //                     
 //                 }
                 
+                g_engine->drop_transient_gl_state();
                 g_gl_transient_state.reset(0);
                 LOGI( "destroy: returning\n" );
                 return;
@@ -1333,12 +1302,13 @@ void android_main(struct android_app* state) {
         
             assert( g_engine.get() != 0 );
             
-			
-			try {
-				g_engine->render( g_gl_transient_state.get() );
-			} catch( std::runtime_error x ) {
-				LOGI( "caught runtime error: %s\n", x.what() );
-			}
+            
+            try {
+                g_engine->render( g_gl_transient_state.get() );
+            } catch( std::runtime_error x ) {
+                LOGI( "caught runtime error: %s\n", x.what() );
+                return;
+            }
             //LOGI( "initilaized\n" );
            // g_gl_transient_state->renderFrame();
         } else {
@@ -1350,7 +1320,12 @@ void android_main(struct android_app* state) {
     }
     
 //     LOGI( "destroyed2: %d\n", g_destroyed );
-    LOGI( "return\n" );
+LOGI( "return\n" );
+    } catch( std::runtime_error x ) {
+        LOGI( "big catch: %s\n", x.what() );
+        return;
+    } 
+
 }
 
 // extern "C" {

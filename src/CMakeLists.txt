@@ -1,11 +1,18 @@
 cmake_minimum_required(VERSION 2.8)
 add_subdirectory(Box2D)
 
+set(Boost_INCLUDE_DIRS /home/sim/src/android-cmake/common-libs/boost/boost_1_45_0)
+set(Boost_LIBRARIES boost_filesystem;boost_system;boost_program_options;boost_iostreams;boost_date_time)
+link_directories(/home/sim/src/android-cmake/common-libs/boost/libs/armeabi-v7a)
+
+
+
+#find_package( Boost REQUIRED )
 #notice the "recycling" of CMAKE_C_FLAGS
 #this is necessary to pick up android flags
 set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -pedantic -fPIC" )
-set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -fPIC" )
-
+set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -fPIC -std=c++0x" )
+include_directories(${Boost_INCLUDE_DIRS})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/API)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/../shooter2)
@@ -13,7 +20,12 @@ set( LIBRARY_DEPS EGL GLESv2 log android)
 
 set(MY_SRCS
     android_native_app_glue.c
-    gl_code.cpp #cpp files can be compiled to
+#     gl_code.cpp #cpp files can be compiled to
+    ortho_android.cpp
+    ../shooter2/gl_bits.cpp
+    ../shooter2/scene_bits.cpp
+    ../shooter2/crystal_bits.cpp
+    ../shooter2/rad_core.cpp
     )
 
 set(CLANLIB_SRC

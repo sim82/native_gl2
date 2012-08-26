@@ -146,7 +146,7 @@ if(BOX2D_BUILD_SHARED)
 # 	)
 endif()
 
-if(BOX2D_BUILD_STATIC)
+#if(BOX2D_BUILD_STATIC)
 	add_library(Box2D STATIC
 		${BOX2D_General_HDRS}
 		${BOX2D_Joints_SRCS}
@@ -168,7 +168,7 @@ if(BOX2D_BUILD_STATIC)
 # 		CLEAN_DIRECT_OUTPUT 1
 # 		VERSION ${BOX2D_VERSION}
 # 	)
-endif()
+#endif()
 
 # These are used to create visual studio folders.
 source_group(Collision FILES ${BOX2D_Collision_SRCS} ${BOX2D_Collision_HDRS})
