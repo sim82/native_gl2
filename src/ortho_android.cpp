@@ -18,6 +18,7 @@
 
 #include <jni.h>
 #include <android/log.h>
+#include <android/sensor.h>
 #include "android_native_app_glue.h"
 #include <stdint.h>
 #include <EGL/egl.h>
@@ -41,12 +42,15 @@
 #include "ClanLib/Core/Math/vec3.h"
 #include "gl_bits.h"
 #include "rad_core.h"
+#include "pan.h"
+
 // #include "player_bits.h"
 #define  LOG_TAG    "libgl2jni"
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO,LOG_TAG,__VA_ARGS__)
 #define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,__VA_ARGS__)
 
 AAssetManager *g_asset_mgr = 0;
+
 
 
 CL_Vec3f hsv_to_rgb( float h, float s, float v ) {
@@ -950,10 +954,13 @@ public:
         return rot_y_;
     }
     
-    
+    void set_rot( float roll, float pitch, float yaw ) {
+        rot_x_ = (pitch / 1) * 3.1415;
+        rot_y_ = (yaw / 1) * 3.1415;
+    }
     void move() {
         //rot_x_ += 0.1;
-        rot_y_ += 0.1;
+//         rot_y_ += 0.1;
     }
 private:
     vec3f pos_;
@@ -965,9 +972,16 @@ class engine_ortho {
 public:
     void init() {
         
+        
+//         ASensorManager_createEventQueue()
         light_weird_ = vec3f(0,0,0);
+        roll_ = pitch_ = yaw_ = 0;
     }
-    
+    void set_roll_pitch_yaw( float roll, float pitch, float yaw ) {
+        roll_ = roll;
+        pitch_ = pitch;
+        yaw_ = yaw;
+    }
     engine_ortho() {
         init();
     }
@@ -1050,7 +1064,9 @@ public:
         
         unit_->render_light( light_weird_, vec3f(1.0, 0.8, 0.6 ));
        
-        p1_.move();
+        //p1_.move();
+        p1_.set_rot( roll_, pitch_, yaw_ );
+        
         auto mat_mvp = setup_perspective(p1_);
         glUniformMatrix4fv( gts->program()->mvp_handle(), 1, GL_FALSE, mat_mvp.matrix ); check_gl_error;
             
@@ -1074,6 +1090,7 @@ private:
     std::unique_ptr<render_unit> unit_;
     player p1_;
     vec3f light_weird_;
+    float roll_, pitch_, yaw_;
 };
 
 std::auto_ptr<gl_transient_state> g_gl_transient_state;
@@ -1195,6 +1212,8 @@ private:
 
 void android_main(struct android_app* state) {
 
+    
+    
     try {
     //     struct engine engine;
 // 
@@ -1206,21 +1225,22 @@ void android_main(struct android_app* state) {
     state->onAppCmd = engine_handle_cmd;
     state->onInputEvent = engine_handle_input;
     
+    pan::init_log();
+    
+    for( size_t i = 0; i < 10; ++i ) {
+        pan::lout << "pan::lout test " << i << std::endl;
+    }
     ptr_nuller<AAssetManager> pn( &g_asset_mgr, state->activity->assetManager);
     
 //     engine.app = state;
 // 
 //     // Prepare to monitor accelerometer
-//     engine.sensorManager = ASensorManager_getInstance();
-//     engine.accelerometerSensor = ASensorManager_getDefaultSensor(engine.sensorManager,
-//             ASENSOR_TYPE_ACCELEROMETER);
-//     engine.sensorEventQueue = ASensorManager_createEventQueue(engine.sensorManager,
-//             state->looper, LOOPER_ID_USER, NULL, NULL);
-// 
-//     if (state->savedState != NULL) {
-//         // We are starting with a previous saved state; restore from it.
-//         engine.state = *(struct saved_state*)state->savedState;
-//     }
+    auto sensor_manager = ASensorManager_getInstance();
+    auto mag_sensor = ASensorManager_getDefaultSensor( sensor_manager,
+            ASENSOR_TYPE_MAGNETIC_FIELD);
+    auto sensor_event_queue = ASensorManager_createEventQueue( sensor_manager,
+            state->looper, LOOPER_ID_USER, NULL, NULL);
+    ASensorEventQueue_enableSensor(sensor_event_queue, mag_sensor);
 
     // loop waiting for stuff to do.
     
@@ -1276,17 +1296,19 @@ void android_main(struct android_app* state) {
             LOGI( "timeout: %d\n", poll_timeout );
             
 //             // If a sensor has data, process it now.
-//             if (ident == LOOPER_ID_USER) {
-    //                 if (engine.accelerometerSensor != NULL) {
-        //                     ASensorEvent event;
-        //                     while (ASensorEventQueue_getEvents(engine.sensorEventQueue,
-        //                             &event, 1) > 0) {
-            //                         LOGI("accelerometer: x=%f y=%f z=%f",
-            //                                 event.acceleration.x, event.acceleration.y,
-//                                 event.acceleration.z);
-//                     }
-//                 }
-//             }
+            if (ident == LOOPER_ID_USER) {
+                if ( mag_sensor != nullptr) {
+                    ASensorEvent event;
+                    while (ASensorEventQueue_getEvents(sensor_event_queue, &event, 1) > 0) {
+                        LOGI("accelerometer: x=%f y=%f z=%f", event.magnetic.azimuth, event.magnetic.pitch, event.magnetic.roll );
+                    
+                        if( g_engine.get() != nullptr ) {
+                            g_engine->set_roll_pitch_yaw( event.magnetic.roll, event.magnetic.pitch, event.magnetic.azimuth );
+                        }
+                        
+                    }
+                }
+            }
 
 //             // Check if we are exiting.
 //             if (state->destroyRequested != 0) {
@@ -1319,8 +1341,8 @@ void android_main(struct android_app* state) {
         
     }
     
-//     LOGI( "destroyed2: %d\n", g_destroyed );
-LOGI( "return\n" );
+    //     LOGI( "destroyed2: %d\n", g_destroyed );
+LOGI( ">>>>>>>>>>>>>>> return\n" );
     } catch( std::runtime_error x ) {
         LOGI( "big catch: %s\n", x.what() );
         return;

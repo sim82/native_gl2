@@ -21,7 +21,8 @@ set( LIBRARY_DEPS EGL GLESv2 log android)
 set(MY_SRCS
     android_native_app_glue.c
 #     gl_code.cpp #cpp files can be compiled to
-    ortho_android.cpp
+    pan_main.cpp
+    pan.cpp
     ../shooter2/gl_bits.cpp
     ../shooter2/scene_bits.cpp
     ../shooter2/crystal_bits.cpp
