@@ -7,14 +7,17 @@
 
 #include <iostream>
 #include <vector>
+#include <array>
 #include <functional>
 #include <stdexcept>
 #include <memory>
+#include <algorithm>
 #include <cassert>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
-
+#include <SLES/OpenSLES.h>
+#include <SLES/OpenSLES_Android.h>
 #include "android_native_app_glue.h"
 
 
@@ -252,29 +255,37 @@ public:
 typedef std::function<gl_transient_state_int * ( android_app*, egl_context &ctx ) > gl_transient_state_factory;
 
 
-class render_client_int
-{
-public:
-    virtual void render ( gl_transient_state_int *gl_ts_ ) = 0;
-};
+// class render_client_int
+// {
+// public:
+//     virtual void render ( gl_transient_state_int *gl_ts_ ) = 0;
+// };
 
-class input_client_int {
-    
-public:
-    virtual void create_pointer( int idx ) = 0;
-    virtual void remove_pointer( int idx ) = 0;
-    virtual void move_pointer( int idx, int x, int y ) = 0;
-};
+// class input_client_int {
+//     
+// public:
+//     virtual void create_pointer( int idx ) = 0;
+//     virtual void remove_pointer( int idx ) = 0;
+//     virtual void move_pointer( int idx, int x, int y ) = 0;
+// };
+
+
+typedef std::function<void( gl_transient_state_int & )> client_render_func;
+
 
 class app_thread
 {
 public:
-    app_thread ( android_app * state, render_client_int *rcl, gl_transient_state_factory gl_ts_fact )
+    app_thread ( android_app * state, client_render_func rfunc, gl_transient_state_factory gl_ts_fact )
         :
         state_ ( state ),
         gl_ts_fact_ ( gl_ts_fact ),
         destroy_request_ ( false ),
-        rclient_ ( rcl ) {
+      //  rclient_ ( rcl ),
+        client_render_(rfunc),
+        have_touch_handlers_(false)
+        
+    {
         state_->userData = this;
         state_->onAppCmd = on_app_cmd_static;
         state_->onInputEvent = on_input_event_static;
@@ -285,7 +296,7 @@ public:
         try {
             main_loop();
         } catch ( std::exception x ) {
-
+            lout << "caught toplevel std::exception:\n" << x.what() << "\n";
         }
 
     }
@@ -364,7 +375,8 @@ public:
 
 //                     assert( g_engine.get() != 0 );
                 try {
-                    rclient_->render ( gl_ts_.get() );
+                    //rclient_->render ( gl_ts_.get() );
+                    client_render_( *gl_ts_ );
                 } catch ( std::runtime_error x ) {
                     lout << "caught runtime error: " << x.what() << std::endl;
                     return;
@@ -384,6 +396,18 @@ public:
 
     }
 
+    
+    
+    void set_touch_handler( std::function<void(int, float, float)> touch_down, 
+                            std::function<void(int, float, float)> touch_move, 
+                            std::function<void(int, float, float)> touch_up ) {
+        touch_down_ = touch_down;
+        touch_move_ = touch_move;
+        touch_up_ = touch_up;
+        have_touch_handlers_ = true;
+    }
+    
+    
 private:
 
     // android callbacks (called through static wrapper functions)
@@ -498,15 +522,41 @@ private:
             int32_t acode = a & AMOTION_EVENT_ACTION_MASK;
             int32_t aindex = a >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
             
-            
+            if( !have_touch_handlers_ ) {
+                return 0;
+            }
             
             size_t pc = AMotionEvent_getPointerCount( event );
+               
             
-            lout << "motion: " << acode << " " << aindex << " " << pc << std::endl;
+            auto handler = touch_down_;
+            
+            if( acode == AMOTION_EVENT_ACTION_DOWN ) {
+                handler = touch_down_;
+//                 for( size_t i = 0; i < pc; ++i ) {
+//                     uint32_t id = AMotionEvent_getPointerId( event, i );
+//                     touch_down_( id );
+//                 }
+            } else if( acode == AMOTION_EVENT_ACTION_UP ) {
+                handler = touch_up_;
+//                 for( size_t i = 0; i < pc; ++i ) {
+//                     uint32_t id = AMotionEvent_getPointerId( event, i );
+//                     touch_up_( id );
+//                 }
+                
+            } else if( acode == AMOTION_EVENT_ACTION_MOVE ) {
+                handler = touch_move_;
+            }
             
             for( size_t i = 0; i < pc; ++i ) {
-                lout << "ptr: " << i << " " << AMotionEvent_getPointerId( event, i ) << std::endl;
+                uint32_t id = AMotionEvent_getPointerId( event, i );
+                float x = AMotionEvent_getX( event, i );
+                float y = AMotionEvent_getY( event, i );
+                
+                handler( id, x, y );
+                
             }
+            
         }
         
         return 0;
@@ -567,9 +617,89 @@ private:
     std::unique_ptr<egl_context> egl_ctx_;
     std::unique_ptr<gl_transient_state_int> gl_ts_;
     bool destroy_request_;
-    render_client_int *rclient_;
+   // render_client_int *rclient_;
+    
+    client_render_func client_render_;
+    
+    std::function<void(int, float, float)> touch_down_;
+    std::function<void(int, float, float)> touch_move_;
+    std::function<void(int, float, float)> touch_up_;
+    bool have_touch_handlers_;
+    
 };
 
+#define check_sl_error(x) {if( x != SL_RESULT_SUCCESS ) {throw sl_error_exception(x, __FILE__, __LINE__);}}
+
+
+class sl_error_exception : public std::runtime_error {
+public:
+    sl_error_exception( SLresult err, const char *file = nullptr, int line = -1 ) 
+    : std::runtime_error( err_str(err, file, line) ) {}
+private:
+    
+    const char *errcode_string( SLresult res ) ;
+    
+    std::string err_str( SLresult res, const char *file, int line ) throw() ;
+    
+};
+
+class async_audio_output {
+public:
+    
+    typedef std::function<void(int16_t *buf_start, int16_t *buf_end)> fill_buffer_func;
+    typedef std::function<void(float *buf_start, float *buf_end)> fill_buffer_float_func;
+    
+//     class fill_buffer_func {
+//     public:
+//         virtual void operator()(int16_t *buf_start, int16_t *buf_end) = 0;
+//     };
+//     
+    
+    async_audio_output();
+    
+    virtual ~async_audio_output() ;
+    
+    
+    void set_fill_buffer_func( fill_buffer_func func ) {
+        fill_buffer_func_ = func;
+        have_fill_func_ = true;
+        
+    }
+    
+    void set_fill_buffer_float_func( fill_buffer_float_func func ) {
+        fill_buffer_float_func_ = func;
+        have_fill_float_func_ = true;
+        
+    }
+    
+    void start() ;
+    
+    
+private:
+    static void bq_callback( SLAndroidSimpleBufferQueueItf caller, void * data ) ;
+
+    
+    SLObjectItf obj_engine;
+    SLEngineItf if_engine;
+    SLObjectItf obj_output_mix;
+    SLObjectItf obj_player;
+
+    SLPlayItf if_play;
+    SLAndroidSimpleBufferQueueItf if_bqueue;
+    
+    
+    fill_buffer_func fill_buffer_func_;
+    fill_buffer_float_func fill_buffer_float_func_;
+    
+    bool have_fill_func_;
+    bool have_fill_float_func_;
+    
+    std::array<std::vector<int16_t>, 3> bufs;
+    std::array<std::vector<int16_t>, 3>::iterator buf_it;
+    
+    std::vector<float> float_buf;
+    
+};
 }
 
 #endif // __pan_h
