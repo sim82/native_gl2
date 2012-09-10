@@ -988,7 +988,7 @@ public:
     }
     void active( size_t v, bool b ) {
         
-        pan::lout << "active: " << v << " " << b << std::endl;
+//         pan::lout << "active: " << v << " " << b << std::endl;
         active_.at(v) = b;
     }
     sound_render_func func() {
@@ -1070,6 +1070,7 @@ void android_main(struct android_app* state) {
         
         pan::app_thread at(state, render_func, gl_ts_fact );
         auto down_func = [&](int id, float x, float y) {
+            pan::lout << "down" << std::endl;
             ms.active(id, true);
             voices.at(id).osc().freq( 32 + (x / 1024) * 220 );
             voices.at(id).lp_filter().freq( y * 8 );
@@ -1078,11 +1079,12 @@ void android_main(struct android_app* state) {
         auto move_func = [&](int id, float x, float y) { 
             voices.at(id).osc().freq( 32 + (x / 1024) * 220 );
             voices.at(id).lp_filter().freq( y * 8 );
-            pan::lout << "move: " << id << " " << x << " " << y << "\n"; 
+//             pan::lout << "move: " << id << " " << x << " " << y << "\n"; 
             
         };
         auto up_func = [&](int id, float x, float y) { 
             ms.active( id, false );
+//             pan::lout << "up :" << id << std::endl;
         };
         
         at.set_touch_handler( down_func, move_func, up_func );

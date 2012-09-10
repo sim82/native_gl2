@@ -530,15 +530,23 @@ private:
                
             
             auto handler = touch_down_;
+            bool first_only = false;
+            if( acode != AMOTION_EVENT_ACTION_MOVE ) {
+                pan::lout << "acode " << acode << " " << aindex << std::endl;
+            }
             
-            if( acode == AMOTION_EVENT_ACTION_DOWN ) {
+            if( acode == AMOTION_EVENT_ACTION_DOWN || acode == AMOTION_EVENT_ACTION_POINTER_DOWN) {
                 handler = touch_down_;
+                
+//                 pan::lout << "down:" << std::endl;
 //                 for( size_t i = 0; i < pc; ++i ) {
 //                     uint32_t id = AMotionEvent_getPointerId( event, i );
 //                     touch_down_( id );
 //                 }
-            } else if( acode == AMOTION_EVENT_ACTION_UP ) {
+            } else if( acode == AMOTION_EVENT_ACTION_UP || acode == AMOTION_EVENT_ACTION_POINTER_UP ) {
                 handler = touch_up_;
+                
+//                 first_only = acode == AMOTION_EVENT_ACTION_POINTER_UP;
 //                 for( size_t i = 0; i < pc; ++i ) {
 //                     uint32_t id = AMotionEvent_getPointerId( event, i );
 //                     touch_up_( id );
@@ -548,13 +556,30 @@ private:
                 handler = touch_move_;
             }
             
-            for( size_t i = 0; i < pc; ++i ) {
-                uint32_t id = AMotionEvent_getPointerId( event, i );
-                float x = AMotionEvent_getX( event, i );
-                float y = AMotionEvent_getY( event, i );
+            if( true ) {
+                //for( size_t i = 0; i < pc; ++i ) {\
+                [
+                {
+                    size_t i = aindex;
+                    uint32_t id = AMotionEvent_getPointerId( event, i );
+                    float x = AMotionEvent_getX( event, i );
+                    float y = AMotionEvent_getY( event, i );
+                    
+                    handler( id, x, y );
+                    if( acode != AMOTION_EVENT_ACTION_MOVE ) {
+                        pan::lout << "id: " << id << std::endl;
+                    }
+                    //                 if( first_only ) {
+                        //                     break;
+                        //                 }
+                }
+            } else {
                 
+                uint32_t id = AMotionEvent_getPointerId( event, 0 );
+                float x = AMotionEvent_getX( event, 0 );
+                float y = AMotionEvent_getY( event, 0 );
+                    
                 handler( id, x, y );
-                
             }
             
         }
